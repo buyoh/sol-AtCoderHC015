@@ -12,13 +12,26 @@ inline int cvP2I(P p) { return cvP2I(p.y, p.x); }
 struct State {
   F<char> field_;
   int turn_ = 0;
-  shared_ptr<CommandChain> cmds_ = CommandChain::createEmpty();
+  // shared_ptr<CommandChain> cmds_ = CommandChain::createEmpty();
 
   State() : field_(N, N) {}
 
   void applySet(int y, int x, char cnd) {
     field_(y, x) = cnd;
     turn_ += 1;
+  }
+
+  void applySetIdx(int p, char cnd) {
+    repeat(y, N) {
+      repeat(x, N) {
+        if (field_(y, x) != 0)
+          continue;
+        if (--p == 0) {
+          applySet(y, x, cnd);
+          return;
+        }
+      }
+    }
   }
 
   // not char! URDL = {0, 1, 2, 3}
@@ -78,6 +91,18 @@ struct State {
       repeat(x, N) { out << "./>#"[field_(y, x)]; }
       out << '\n';
     }
+    out << "-\n";
+  }
+
+  void generateAdjacents(vector<State> &out) {
+    out.push_back(*this);
+    out.back().applyMoveF();
+    out.push_back(*this);
+    out.back().applyMoveR();
+    out.push_back(*this);
+    out.back().applyMoveD();
+    out.push_back(*this);
+    out.back().applyMoveL();
   }
 
 private:
@@ -91,6 +116,7 @@ private:
         }
       }
     }
+    // cmds_ = CommandChain::pushed(cmds_, 3);
   }
   void applyMoveR() {
     repeat(y, N) {
@@ -102,6 +128,7 @@ private:
         }
       }
     }
+    // cmds_ = CommandChain::pushed(cmds_, 1);
   }
   void applyMoveF() {
     repeat(x, N) {
@@ -113,17 +140,19 @@ private:
         }
       }
     }
+    // cmds_ = CommandChain::pushed(cmds_, 0);
   }
   void applyMoveD() {
     repeat(x, N) {
       int p = N - 1;
-      repeat(y, N) {
+      rrepeat(y, N) {
         if (field_(y, x) != 0) {
           swap(field_(p, x), field_(y, x));
           --p;
         }
       }
     }
+    // cmds_ = CommandChain::pushed(cmds_, 2);
   }
 };
 
@@ -160,6 +189,7 @@ struct Problem {
           continue;
         if (--p == 0) {
           actual_state_.applySet(y, x, types_[current_turn]);
+          // NOTE: この部分が欲しいのでapplySetIdxは使えない
           actual_pos_[current_turn] = P{y, x};
           goto l_break;
         }
@@ -178,12 +208,61 @@ struct Problem {
 
 //
 
+class SolverTurnDfs {
+  const Problem &problem;
+  const vector<int> &rand_seed;
+  const int max_depth;
+
+public:
+  SolverTurnDfs(const Problem &problem, const vector<int> &rand_seed,
+                int max_depth)
+      : problem(problem), rand_seed(rand_seed), max_depth(max_depth) {}
+
+  int dfs(State state, int depth = 1) {
+    if (depth >= max_depth) {
+      return state.score1();
+    }
+    int best = state.score1();
+    repeat(c, 4) {
+      State state2 = state;
+      state2.applyMove(c);
+      state2.applySetIdx(rand_seed[depth],
+                         problem.types_[problem.turn() + depth]);
+      chmax(best, dfs(move(state2), depth + 1));
+    }
+    return best;
+  }
+};
+
 class Solver {
 
 public:
   char solveTurn(const Problem &problem) {
-    //
-    return 0;
+    // 置くとターンをインクリメントする。ターン数＝あめのかず
+    // 1ターン目の始まりに置ける位置は M - 1 個数なので、 [0, M-2]
+    // tターン目の始まりに置ける位置は M - t 個数なので、 [0, M-1-t]
+    // 99ターン目の始まりに置ける位置は M - 99 個数なので、 [0, 0]
+    const int base_rem_turn = M - problem.turn();
+    assert(base_rem_turn > 0);
+    if (base_rem_turn <= 0)
+      return 0;
+    const int max_depth = min(5, base_rem_turn);
+    vector<int> rand_seed(max_depth);
+    repeat(i, max_depth) {
+      //
+      rand_seed[i] = rand(0, base_rem_turn - 1 - i);
+    }
+    pair<int, char> best_score(-1, 0);
+    repeat(cmd0, 4) {
+      State state1 = problem.actual_state_;
+      state1.applyMove(cmd0);
+      state1.applySetIdx(rand_seed[0], problem.types_[problem.turn()]);
+      SolverTurnDfs solver_turn(problem, rand_seed, max_depth);
+      int score = solver_turn.dfs(move(state1));
+      // LOG << "URDL"[cmd0] << score;
+      chmax(best_score, make_pair(score, (char)cmd0));
+    }
+    return best_score.second;
   }
 
 private:
@@ -209,12 +288,15 @@ int main(int argc, char **argv) {
 
   Solver solver;
 
-  repeat(turn, M) {
-    problem.fetch(*scannerp);
+  problem.fetch(*scannerp);
+  repeat(turn, M - 1) {
+    // clog << "turn=" << turn << endl;
+    // problem.actual_state_.print(clog);
     char dir = solver.solveTurn(problem);
     problem.postStdout(dir);
+    // problem.actual_state_.print(clog);
+    problem.fetch(*scannerp);
   }
-  // problem.actual_state_.print(clog);
   clog << "score="
        << problem.actual_state_.score1() * 100000 / problem.score_den_ << endl;
 
