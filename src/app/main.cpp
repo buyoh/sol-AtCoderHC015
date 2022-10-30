@@ -246,23 +246,28 @@ public:
     assert(base_rem_turn > 0);
     if (base_rem_turn <= 0)
       return 0;
-    const int max_depth = min(5, base_rem_turn);
+    const int max_depth = min(4, base_rem_turn);
     vector<int> rand_seed(max_depth);
-    repeat(i, max_depth) {
-      //
-      rand_seed[i] = rand(0, base_rem_turn - 1 - i);
+
+    vector<int> scores(4);
+    repeat(_, 20) {
+      repeat(i, max_depth) {
+        //
+        rand_seed[i] = rand(0, base_rem_turn - 1 - i);
+      }
+      repeat(cmd0, 4) {
+        State state1 = problem.actual_state_;
+        state1.applyMove(cmd0);
+        state1.applySetIdx(rand_seed[0], problem.types_[problem.turn()]);
+        SolverTurnDfs solver_turn(problem, rand_seed, max_depth);
+        int score = solver_turn.dfs(move(state1));
+        // LOG << "URDL"[cmd0] << score;
+        scores[cmd0] += score;
+      }
     }
-    pair<int, char> best_score(-1, 0);
-    repeat(cmd0, 4) {
-      State state1 = problem.actual_state_;
-      state1.applyMove(cmd0);
-      state1.applySetIdx(rand_seed[0], problem.types_[problem.turn()]);
-      SolverTurnDfs solver_turn(problem, rand_seed, max_depth);
-      int score = solver_turn.dfs(move(state1));
-      // LOG << "URDL"[cmd0] << score;
-      chmax(best_score, make_pair(score, (char)cmd0));
-    }
-    return best_score.second;
+    int best_cmd = max_element(all(scores)) - scores.begin();
+    assert(0 <= best_cmd && best_cmd < 4);
+    return best_cmd;
   }
 
 private:
